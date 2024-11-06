@@ -13,4 +13,7 @@ run_srv:
 build_cryptr:
 	go build -o $(out_dir)/cryptr ./cmd/cryptr/cryptr.go
 
+# Client ---------------------------------------------
 
+build_client:
+	go build -o $(out_dir)/client ./cmd/client/client.go
