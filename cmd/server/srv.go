@@ -1,30 +1,44 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
-	"net/http"
+	"time"
+
+	"github.com/TP-TS-Go/internal/server"
 )
 
 const (
-	PORT = 8080
+	PORT = 9000
 	HOST = "0.0.0.0"
+	// MAX_CONS = 6
 )
 
 func main() {
 	address := fmt.Sprintf("%s:%d", HOST, PORT)
 
-	tcp_listener, err := net.Listen("tcp", address)
-	if err != nil {
-		log.Fatalf("ERRO: %s", err.Error())
+	tcp_listener_conf := net.ListenConfig{
+		KeepAlive: time.Minute * 5,
+		KeepAliveConfig: net.KeepAliveConfig{
+			Enable: true,
+			Idle:   time.Minute,
+		},
 	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusTeapot)
-		_, _ = w.Write([]byte("I'm a tea pot"))
-	})
+	tcp_listener, err := tcp_listener_conf.Listen(context.Background(), "tcp", address)
+	if err != nil {
+		log.Fatalf("ERRO - TCP LISTENER: %s", err.Error())
+	}
 
-	log.Printf("Server a correr em http://%s\n", address)
-	log.Fatal(http.Serve(tcp_listener, nil))
+	for {
+		conn, err := tcp_listener.Accept()
+		if err != nil {
+			log.Fatalf("ERRO - Con. ACCEPT : %s", err.Error())
+		}
+
+		// Handle new TCP Connection
+		go server.HandleNewConnection(conn)
+	}
 }
