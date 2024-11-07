@@ -2,15 +2,11 @@ package server
 
 import (
 	"bufio"
+	"fmt"
+	"io"
 	"log"
 	"net"
 )
-
-type Message struct {
-	Length  byte
-	Target  byte
-	Content []byte
-}
 
 func HandleNewConnection(con net.Conn) {
 	log.Println("New Connection!")
@@ -23,7 +19,9 @@ func HandleNewConnection(con net.Conn) {
 
 		_, _ = con.Write(append(buf.Bytes(), '\n'))
 
-		if buf.Text() == "#close#\n" {
+		fmt.Println(buf.Text())
+
+		if buf.Text() == io.EOF.Error() {
 			break
 		}
 	}
