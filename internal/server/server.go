@@ -2,36 +2,42 @@ package server
 
 import (
 	"bufio"
-	"fmt"
+	"errors"
 	"io"
 	"log"
 	"net"
+
+	"github.com/vmihailenco/msgpack/v5"
+
+	msgpacktyps "github.com/TP-TS-Go/internal/msgpack_typs"
 )
 
 func HandleNewConnection(con net.Conn) {
 	log.Println("New Connection!")
 
-	buf := bufio.NewScanner(con)
+	buf := bufio.NewReader(con)
 
-	for buf.Scan() {
-		data := buf.Text()
-		log.Printf("RECEIVED DATA: %s", data)
+	var decoder *msgpack.Decoder
 
-		_, _ = con.Write(append(buf.Bytes(), '\n'))
+	for {
+		decoder = msgpack.NewDecoder(buf)
+		log.Printf("RECEIVED SOME DATA")
 
-		fmt.Println(buf.Text())
+		// The loop pauses here waiting for the decoder to receive any new data
+		var msg msgpacktyps.Message
+		err := decoder.Decode(&msg)
+		log.Printf("DECODED SOME DATA")
 
-		if buf.Text() == io.EOF.Error() {
+		if err != nil && errors.Is(err, io.EOF) {
+			log.Println("conexao terminada")
 			break
 		}
-	}
 
-	if buf.Err() != nil {
-		log.Printf("ERRO on buf scanner: %s", buf.Err().Error())
-	}
+		if err != nil {
+			log.Printf("erro ao decodificar o MsgPack packet: %s", err.Error())
+		}
 
-	err := con.Close()
-	if err != nil {
-		log.Fatalf("ERROR: %s", err.Error())
+		// Echo back the file contents
+		_, _ = con.Write([]byte("Received\n"))
 	}
 }
