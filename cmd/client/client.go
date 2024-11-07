@@ -4,11 +4,11 @@ import (
 	"log"
 	"os"
 
-	"github.com/TP-TS-Go/internal/client"
+	client "github.com/TP-TS-Go/internal/client"
 )
 
 // ./app INIT server_id -> Sets up the required files, and requests the client ID from the server
-// ./app SEND target msg -> usa o client_id, o target e o address do server
+// ./app SEND target -> usa o client_id, o target e o address do server
 // ./app CREATE_SECRET -> usa o client_id, o timestamp_atual e avisa o server do mesmo processo com o timestamp_atual
 
 // CLI ARGS
@@ -32,10 +32,10 @@ func main() {
 			// O user pode fazer: ./cli INIT  o que e invalido
 			// O experado seria ./cli INIT 192.168.1.254
 			// Dai enviarmos uma slice que pode ser vazia, o check e feito em InitClient
-			client.InitClient(args[i:])
+			client.InitClient(args[i+1:])
 		case Send:
 			log.Println("A enviar uma MSG")
-			client.HandleServerComunication()
+			client.HandleServerComunication(args[i+1:])
 		case CreateSecret:
 			log.Println("A criar o secret")
 		}
