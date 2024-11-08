@@ -25,7 +25,7 @@ func InitClient(args []string) {
 	}
 
 	// Connect to the server specefied in the config file
-	comHandler := NewComHandler(args[0], config.ServerAddress)
+	comHandler := NewComHandler("", args[0], config.ServerAddress)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -33,6 +33,8 @@ func InitClient(args []string) {
 	comHandler.SetOnMsgReceive(func(m msgpacktyps.Message) {
 		// Handle config response
 		config.ClientId = string(m.Content[0:16])
+		config.RawMaterial = string(m.Content[18:])
+		comHandler.senderId = config.ClientId
 
 		wg.Done()
 	})
@@ -46,7 +48,7 @@ func InitClient(args []string) {
 	encoder := msgpack.NewEncoder(&encoderBuffer)
 	// encoder.UseArrayEncodedStructs(true)
 
-	msg := msgpacktyps.NewMessage(msgpacktyps.RequestId, "0", 0x0)
+	msg := msgpacktyps.NewMessage(msgpacktyps.RequestId, "", "0", 0x0)
 
 	err = encoder.Encode(msg)
 	if err != nil {

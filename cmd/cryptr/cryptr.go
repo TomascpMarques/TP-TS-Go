@@ -1,10 +1,10 @@
 package main
 
 import (
-	"crypto/rand"
-	"fmt"
 	"log"
 	"os"
+
+	"github.com/TP-TS-Go/internal/crypto"
 )
 
 func main() {
@@ -15,16 +15,17 @@ func main() {
 		log.Fatalf("Demasiados argumentos")
 	}
 
-	b := make([]byte, 1600)
-	_, err := rand.Read(b)
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
+	rb, _ := crypto.GenerateRawRandomBytes()
+	secret, _ := crypto.GenerateSecret(rb)
+
+	data, _ := os.ReadFile(args[0])
+
+	if len(data) < 1 {
+		panic("read nothing of the file")
 	}
 
-	fmt.Printf("%x\n", b)
+	cypher := crypto.Encrypt(data, secret)
+	decripted := crypto.Decrypt(cypher, secret)
 
-	for _, arg := range args {
-		fmt.Printf("\nARG: %s\n", arg)
-	}
+	_ = os.WriteFile(args[1], decripted, 0644)
 }

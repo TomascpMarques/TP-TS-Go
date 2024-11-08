@@ -32,6 +32,8 @@ func main() {
 		log.Fatalf("ERRO - TCP LISTENER: %s", err.Error())
 	}
 
+	serverSate := server.NewServerState()
+
 	for {
 		conn, err := tcp_listener.Accept()
 		if err != nil {
@@ -39,6 +41,6 @@ func main() {
 		}
 
 		// Handle new TCP Connection
-		go server.HandleNewConnection(conn, server.NewServerState())
+		go server.HandleNewConnection(conn, serverSate)
 	}
 }

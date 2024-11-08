@@ -11,6 +11,7 @@ import (
 )
 
 type Config struct {
+	RawMaterial   string `toml:"raw_material"`
 	CreatedAt     int64  `toml:"created_ts"`
 	ClientId      string `toml:"client_id"`
 	Secret        string `toml:"secret"`
@@ -66,4 +67,30 @@ func loadConfingFromFile() (config *Config, err error) {
 	}
 
 	return
+}
+
+func writeToConfigFile(config Config) {
+	path_conf, err := getConfFolderPath()
+	if err != nil {
+		log.Fatalf("erro: %s", err.Error())
+	}
+
+	if err := os.MkdirAll(path_conf, 0760); err != nil {
+		log.Fatalf("erro ao escrever no ficheiro de configuracao: %s", err.Error())
+	}
+
+	file, err := os.Create(path.Join(path_conf, "cryptr.toml"))
+	if err != nil {
+		log.Fatalf("erro ao criar o ficheiro de configuracao: %s", err.Error())
+	}
+
+	content, err := toml.Marshal(config)
+	if err != nil {
+		log.Fatalf("falha ao ler a configuracao do cliente: %s", err.Error())
+	}
+
+	_, err = file.Write(content)
+	if err != nil {
+		log.Fatal(err)
+	}
 }

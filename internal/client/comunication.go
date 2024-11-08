@@ -8,15 +8,18 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/vmihailenco/msgpack/v5"
 
+	"github.com/TP-TS-Go/internal/crypto"
 	msgpacktyps "github.com/TP-TS-Go/internal/msgpack_typs"
 )
 
 type ComHandler struct {
+	senderId   string
 	srvAddress string
 	target     string
 	connection net.Conn
@@ -27,8 +30,9 @@ type ComHandler struct {
 	listenUsrIoCloseChn chan bool
 }
 
-func NewComHandler(target string, srvAddress string) *ComHandler {
+func NewComHandler(sender string, target string, srvAddress string) *ComHandler {
 	handler := ComHandler{
+		senderId:   sender,
 		target:     target,
 		srvAddress: srvAddress,
 	}
@@ -41,7 +45,7 @@ func (ch *ComHandler) spawnUserIoListenerRoutine() {
 
 	go func() {
 		for {
-			inputBytes, err := userInputBuffer.ReadBytes('\n')
+			inputBytes, err := userInputBuffer.ReadBytes(0x0a)
 			if err != nil && errors.Is(err, io.EOF) {
 				ch.connection.Close()
 			}
@@ -49,8 +53,22 @@ func (ch *ComHandler) spawnUserIoListenerRoutine() {
 				log.Fatalf("erro ao ler user input: %s", err.Error())
 			}
 
+			if strings.Contains(string(inputBytes), "#!createSecret") {
+				config, _ := loadConfingFromFile()
+				secret, time := crypto.GenerateSecret([]byte(config.RawMaterial))
+				config.Secret = string(secret)
+
+				writeToConfigFile(*config)
+
+				log.Printf("Secret: %s", secret)
+
+				x := fmt.Sprintf("%d", time.Unix())
+				log.Printf("CREATED AT: %s\n", x)
+				inputBytes = append(inputBytes, []byte(x)...)
+			}
+
 			// Create and encode the message into the MsgPack Format
-			msg := msgpacktyps.NewMessage(msgpacktyps.SendContent, ch.target, inputBytes...)
+			msg := msgpacktyps.NewMessage(msgpacktyps.SendContent, ch.senderId, ch.target, inputBytes...)
 
 			b, err := msgpack.Marshal(&msg)
 			if err != nil {
@@ -78,16 +96,19 @@ func (ch *ComHandler) spawnConnectionListenerRoutine() {
 
 	go func() {
 		for {
-			data, err := connectionRespBuff.ReadBytes('\n')
+			data, err := connectionRespBuff.ReadBytes(0x0a)
 			if err != nil {
 				log.Fatal(err)
 			}
-			// Invoke the given handler
+
+			if len(data) < 1 {
+				continue
+			}
 
 			var msgM msgpacktyps.Message
 			err = msgpack.Unmarshal(data, &msgM)
-			if err != nil {
-				log.Fatalf("erro ao descodificar a msg: %s", err.Error())
+			if err != nil && !errors.Is(err, io.EOF) {
+				log.Printf("erro ao descodificar a msg: %s", err.Error())
 			}
 
 			ch.onMsgReceive(msgM)
@@ -129,6 +150,9 @@ func (ch *ComHandler) SetOnMsgReceive(function func(msgpacktyps.Message)) {
 func (ch *ComHandler) ShutDown() {
 	ch.listenConCloseChn <- true
 	ch.listenUsrIoCloseChn <- true
+
+	close(ch.listenConCloseChn)
+	close(ch.listenUsrIoCloseChn)
 }
 
 func testExample(msg msgpacktyps.Message) {
@@ -147,7 +171,7 @@ func HandleServerComunication(args []string) {
 	}
 
 	// Connect to the server specefied in the config file
-	comHandler := NewComHandler(args[0], config.ServerAddress)
+	comHandler := NewComHandler(config.ClientId, args[0], config.ServerAddress)
 
 	comHandler.SetOnMsgReceive(testExample)
 
