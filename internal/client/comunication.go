@@ -10,19 +10,18 @@ import (
 	"os"
 	"sync"
 	"time"
-)
 
-type Message struct {
-	Target  string `msgpack:"target"`
-	Content []byte `msgpack:"content"`
-}
+	"github.com/vmihailenco/msgpack/v5"
+
+	msgpacktyps "github.com/TP-TS-Go/internal/msgpack_typs"
+)
 
 type ComHandler struct {
 	srvAddress string
 	target     string
 	connection net.Conn
 	//---
-	onMsgReceive func([]byte)
+	onMsgReceive func(msgpacktyps.Message)
 	// ---
 	listenConCloseChn   chan bool
 	listenUsrIoCloseChn chan bool
@@ -50,10 +49,19 @@ func (ch *ComHandler) spawnUserIoListenerRoutine() {
 				log.Fatalf("erro ao ler user input: %s", err.Error())
 			}
 
-			_, err = ch.connection.Write(inputBytes)
+			// Create and encode the message into the MsgPack Format
+			msg := msgpacktyps.NewMessage(msgpacktyps.SendContent, ch.target, inputBytes...)
+
+			b, err := msgpack.Marshal(&msg)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatalf("erro no marshaling: %s", err.Error())
 			}
+
+			_, err = ch.connection.Write(b)
+			if err != nil {
+				log.Fatalf("erro ao escrever na conexao: %s", err.Error())
+			}
+
 			// if nn < len(inputBytes) {
 			// 	log.Printf("[WARN] nao escreveu os bytes todos: %s", err.Error())
 			// }
@@ -70,12 +78,19 @@ func (ch *ComHandler) spawnConnectionListenerRoutine() {
 
 	go func() {
 		for {
-			msg, err := connectionRespBuff.ReadBytes('\n')
+			data, err := connectionRespBuff.ReadBytes('\n')
 			if err != nil {
 				log.Fatal(err)
 			}
 			// Invoke the given handler
-			ch.onMsgReceive(msg)
+
+			var msgM msgpacktyps.Message
+			err = msgpack.Unmarshal(data, &msgM)
+			if err != nil {
+				log.Fatalf("erro ao descodificar a msg: %s", err.Error())
+			}
+
+			ch.onMsgReceive(msgM)
 		}
 	}()
 
@@ -107,7 +122,7 @@ func (ch *ComHandler) CreateConnection() error {
 	return nil
 }
 
-func (ch *ComHandler) SetOnMsgReceive(function func([]byte)) {
+func (ch *ComHandler) SetOnMsgReceive(function func(msgpacktyps.Message)) {
 	ch.onMsgReceive = function
 }
 
@@ -116,8 +131,8 @@ func (ch *ComHandler) ShutDown() {
 	ch.listenUsrIoCloseChn <- true
 }
 
-func testExample(msg []byte) {
-	log.Println(string(msg))
+func testExample(msg msgpacktyps.Message) {
+	log.Printf("MSG DATA: %s\n", msg.Content)
 }
 
 func HandleServerComunication(args []string) {
