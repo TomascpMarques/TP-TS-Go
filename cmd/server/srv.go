@@ -39,6 +39,6 @@ func main() {
 		}
 
 		// Handle new TCP Connection
-		go server.HandleNewConnection(conn)
+		go server.HandleNewConnection(conn, server.NewServerState())
 	}
 }

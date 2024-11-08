@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"fmt"
 	"log"
 	"os"
@@ -14,7 +15,16 @@ func main() {
 		log.Fatalf("Demasiados argumentos")
 	}
 
+	b := make([]byte, 1600)
+	_, err := rand.Read(b)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	fmt.Printf("%x\n", b)
+
 	for _, arg := range args {
-		fmt.Printf("ARG: %s\n", arg)
+		fmt.Printf("\nARG: %s\n", arg)
 	}
 }
