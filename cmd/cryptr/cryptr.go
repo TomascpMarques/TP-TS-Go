@@ -27,5 +27,6 @@ func main() {
 	cypher := crypto.Encrypt(data, secret)
 	decripted := crypto.Decrypt(cypher, secret)
 
-	_ = os.WriteFile(args[1], decripted, 0644)
+	_ = os.WriteFile(args[1], cypher, 0644)
+	_ = os.WriteFile(args[2], decripted, 0644)
 }
