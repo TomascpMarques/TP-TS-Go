@@ -88,7 +88,6 @@ func newClient(c *gin.Context, ss *ServerState) {
 
 	c.SetCookie("client", clientId, 3600, "/", "localhost", false, true)
 	c.Status(http.StatusOK)
-	// c.Data(http.StatusOK, http.DetectContentType(clientSecret), clientSecret)
 }
 
 func connectToRoom(c *gin.Context, ss *ServerState) {
@@ -106,7 +105,7 @@ func generateNewClientData(rawBytes []byte) (string, []byte) {
 	hash.Write(append(rawBytes, clientID...))
 	rawBytesForSecret := hash.Sum(nil)
 
-	clientSecret, _, err := crypto.GenerateSecret(rawBytesForSecret, time.Now())
+	clientSecret, _, err := crypto.GenerateSecret(rawBytesForSecret)
 	if err != nil {
 		log.Fatalf("Erro ao gerar raw bytes for secret: %s", err.Error())
 	}
