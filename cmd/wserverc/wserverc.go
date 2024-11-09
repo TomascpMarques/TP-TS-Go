@@ -8,8 +8,18 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/gorilla/websocket"
+
 	"github.com/TP-TS-Go/internal/crypto"
 )
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
 
 func main() {
 	materialResp, err := http.Get("http://localhost:8080/public/identity")
@@ -50,4 +60,34 @@ func main() {
 	}
 
 	log.Printf("The secret is: %x", clientSecret)
+
+	c, _, err := websocket.DefaultDialer.Dial(socketURL, nil)
+	if err != nil {
+		log.Fatal("dial:", err)
+	}
+	defer c.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer c.Close()
+		defer close(done)
+		for {
+			_, message, err := c.ReadMessage()
+			if err != nil {
+				log.Println("read:",
+					err)
+				return
+			}
+			log.Printf("recv: %s", message)
+		}
+	}()
+
+	for {
+		err := c.WriteMessage(websocket.TextMessage, []byte("Hello, World!"))
+		if err != nil {
+			log.Println("write:", err)
+			return
+		}
+		log.Println("sent: Hello, World!")
+	}
 }

@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 
 	"github.com/TP-TS-Go/internal/crypto"
 )
@@ -19,9 +22,78 @@ const (
 	PORT = 8080
 )
 
+type Client struct {
+	Id           string
+	RecvChannel  chan []byte
+	WsConnection *websocket.Conn
+}
+
+func NewClient(id string, wsc *websocket.Conn) *Client {
+	client := &Client{
+		Id:           id,
+		RecvChannel:  make(chan []byte),
+		WsConnection: wsc,
+	}
+
+	go func() {
+		for {
+			msg := <-client.RecvChannel
+			err := client.WsConnection.WriteMessage(websocket.TextMessage, msg)
+			if err != nil {
+				log.Printf("falha ao escrever a mensagem de outro client: %s", err.Error())
+			}
+		}
+	}()
+
+	return client
+}
+
+type Room struct {
+	clients     map[string]*Client
+	sendChannel chan []byte
+}
+
+func (r *Room) RegisterNewClient(client *Client) {
+	r.clients[client.Id] = client
+}
+
+func (r *Room) BroadcastMsg(msgType int, msg []byte) (err error) {
+	for _, target := range r.clients {
+		err = target.WsConnection.WriteMessage(msgType, msg)
+		if err != nil {
+			log.Printf("falha ao enviar msg em broadcast: %s", err.Error())
+			break
+		}
+	}
+	return
+}
+
+func (r *ServerState) SendMsg(msgType int, msg []byte, target string) error {
+	msgTarget, exists := r.Room.clients[target]
+	if !exists {
+		return fmt.Errorf("alvo nao existe")
+	}
+
+	usrId, _ := hex.DecodeString(msgTarget.Id)
+
+	encMessage, err := crypto.Encrypt(msg, usrId)
+	if err != nil {
+		log.Printf("falha ao encrypt msg: %s", err.Error())
+	}
+
+	err = msgTarget.WsConnection.WriteMessage(msgType, encMessage)
+	if err != nil {
+		log.Printf("falha ao enviar msg para um cliente : %s", err.Error())
+	}
+
+	// Will send nil if the last if statement does not run
+	return err
+}
+
 type ServerState struct {
 	clientsSecrets    map[string][]byte
 	publicRawMaterial []byte
+	*Room
 }
 
 func NewServerState() *ServerState {
@@ -29,15 +101,29 @@ func NewServerState() *ServerState {
 	if err != nil {
 		log.Fatalf("falha ao gerar raw material para o public: %s", err.Error())
 	}
-
-	return &ServerState{
+	state := ServerState{
 		clientsSecrets:    make(map[string][]byte),
 		publicRawMaterial: rawMaterial,
+		Room: &Room{
+			clients:     make(map[string]*Client),
+			sendChannel: make(chan []byte, 256),
+		},
 	}
+
+	return &state
 }
 
 func (ss *ServerState) AddClientSecret(clientId string, clientSecret []byte) {
 	ss.clientsSecrets[clientId] = clientSecret
+}
+
+var WsUpgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+	EnableCompression: false,
 }
 
 func main() {
@@ -66,7 +152,7 @@ func main() {
 	app.POST("/create/client", func(ctx *gin.Context) {
 		newClient(ctx, serverState)
 	})
-	app.GET("/room/connect", func(ctx *gin.Context) {
+	app.GET("/chat/:method/*target", func(ctx *gin.Context) {
 		connectToRoom(ctx, serverState)
 	})
 
@@ -91,7 +177,56 @@ func newClient(c *gin.Context, ss *ServerState) {
 }
 
 func connectToRoom(c *gin.Context, ss *ServerState) {
-	c.String(http.StatusOK, "Hello")
+	writer, request := c.Writer, c.Request
+
+	// Comunication method
+	method := c.Params.ByName("method")
+
+	clientWantsToBroadcast := false
+	if method == "broadcast" {
+		log.Println("On broadcast")
+		clientWantsToBroadcast = true
+	}
+	targetClient := c.Params.ByName("target")
+	if strings.Trim(targetClient, " \n\t") == "" {
+		c.Status(http.StatusBadRequest)
+	}
+
+	// clientId, err := c.Cookie("client")
+	// if errors.Is(err, http.ErrNoCookie) {
+	// 	log.Printf("no client ID specefied, no cookie found")
+	// 	c.Status(http.StatusBadRequest)
+	// 	return
+	// }
+
+	ws, err := WsUpgrader.Upgrade(writer, request, nil)
+	if err != nil {
+		log.Printf("erro ao dar upgrad da conexão: %s", err.Error())
+	}
+	defer ws.Close()
+
+	client := NewClient(time.Now().UTC().GoString(), ws)
+	ss.Room.RegisterNewClient(client)
+
+	for {
+		mt, message, err := ws.ReadMessage()
+		if err != nil {
+			log.Printf("Failed to read the message: %s", err.Error())
+		}
+		log.Printf("received: %s", message)
+
+		if clientWantsToBroadcast {
+			_ = ss.Room.BroadcastMsg(mt, message)
+			continue
+		}
+
+		dencMessage, err := crypto.Decrypt(message, ss.clientsSecrets[client.Id])
+		if err != nil {
+			fmt.Printf("failed to encrypt the messages")
+		}
+
+		_ = ss.SendMsg(mt, dencMessage, targetClient)
+	}
 }
 
 // generateNewClientData generates a client ID and client specific secret
