@@ -15,8 +15,8 @@ func main() {
 		log.Fatalf("Demasiados argumentos")
 	}
 
-	rb, _ := crypto.GenerateRawRandomBytes()
-	secret, _ := crypto.GenerateSecret(rb)
+	rb, _ := crypto.GenerateRawRandomBytes(32)
+	secret, _, _ := crypto.GenerateSecret(rb)
 
 	data, _ := os.ReadFile(args[0])
 
@@ -24,8 +24,9 @@ func main() {
 		panic("read nothing of the file")
 	}
 
-	cypher := crypto.Encrypt(data, secret)
-	decripted := crypto.Decrypt(cypher, secret)
+	cypher, _ := crypto.Encrypt(data, secret)
+
+	decripted, _ := crypto.Decrypt(cypher, secret)
 
 	_ = os.WriteFile(args[1], cypher, 0644)
 	_ = os.WriteFile(args[2], decripted, 0644)
