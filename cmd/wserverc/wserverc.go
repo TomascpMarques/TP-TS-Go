@@ -1,25 +1,20 @@
 package main
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/gorilla/websocket"
 
 	"github.com/TP-TS-Go/internal/crypto"
 )
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-}
 
 func main() {
 	materialResp, err := http.Get("http://localhost:8080/public/identity")
@@ -37,9 +32,11 @@ func main() {
 	defer resp.Body.Close()
 
 	var clientId []byte
+	var clientIdCookie *http.Cookie
 
 	for _, x := range resp.Cookies() {
 		if x.Name == "client" {
+			clientIdCookie = x
 			x1, err := hex.DecodeString(x.Value)
 			if err != nil {
 				log.Fatalf("erro ao decode hex from cookie: %s", err.Error())
@@ -47,6 +44,9 @@ func main() {
 
 			clientId = make([]byte, len(x1))
 			copy(clientId, x1)
+
+			clientIdCookie.Value = fmt.Sprintf("%x", clientId)
+			log.Printf("ID: %x", clientId)
 		}
 	}
 
@@ -61,33 +61,44 @@ func main() {
 
 	log.Printf("The secret is: %x", clientSecret)
 
-	c, _, err := websocket.DefaultDialer.Dial(socketURL, nil)
-	if err != nil {
-		log.Fatal("dial:", err)
-	}
-	defer c.Close()
+	request, _ := http.NewRequest("GET", "ws://localhost:8080/chat/broadcast/", nil)
+	request.AddCookie(clientIdCookie)
 
-	done := make(chan struct{})
+	// client := &http.Client{}
+
+	// resp, err = client.Do(request)
+	// if err != nil {
+	// 	fmt.Println("Error making request:", err)
+	// 	return
+	// }
+
+	// Make the WebSocket connection
+	ws, _, err := websocket.DefaultDialer.Dial(request.URL.String(), request.Header)
+	if err != nil {
+		fmt.Println("Error dialing:", err)
+		return
+	}
+
 	go func() {
-		defer c.Close()
-		defer close(done)
 		for {
-			_, message, err := c.ReadMessage()
-			if err != nil {
-				log.Println("read:",
-					err)
-				return
-			}
-			log.Printf("recv: %s", message)
+			_, msg, _ := ws.ReadMessage()
+			log.Println(msg)
 		}
 	}()
 
+	userInputBuffer := bufio.NewReader(os.Stdin)
 	for {
-		err := c.WriteMessage(websocket.TextMessage, []byte("Hello, World!"))
-		if err != nil {
-			log.Println("write:", err)
-			return
+		inputBytes, err := userInputBuffer.ReadBytes(0x0a)
+		if err != nil && errors.Is(err, io.EOF) {
+			ws.Close()
 		}
-		log.Println("sent: Hello, World!")
+		if err != nil {
+			log.Fatalf("erro ao ler user input: %s", err.Error())
+		}
+
+		err = ws.WriteMessage(websocket.TextMessage, inputBytes)
+		if err != nil {
+			log.Fatalf("erro ao escrever na conexao: %s", err.Error())
+		}
 	}
 }

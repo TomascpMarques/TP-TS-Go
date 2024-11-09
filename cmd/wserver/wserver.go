@@ -23,13 +23,13 @@ const (
 )
 
 type Client struct {
-	Id           string
+	Id           []byte
 	Secret       []byte
 	RecvChannel  chan []byte
 	WsConnection *websocket.Conn
 }
 
-func NewClient(id string, wsc *websocket.Conn) *Client {
+func NewClient(id []byte, wsc *websocket.Conn) *Client {
 	client := &Client{
 		Id:           id,
 		RecvChannel:  make(chan []byte),
@@ -54,12 +54,18 @@ type Room struct {
 }
 
 func (r *Room) RegisterNewClient(client *Client) {
-	r.clients[client.Id] = client
+	r.clients[fmt.Sprintf("%x", client.Id)] = client
 }
 
 func (r *Room) BroadcastMsg(msgType int, msg []byte) (err error) {
 	for _, target := range r.clients {
-		err = target.WsConnection.WriteMessage(msgType, msg)
+
+		encMessage, err := crypto.Encrypt(msg, target.Secret)
+		if err != nil {
+			log.Fatalf("falha ao encrypt msg para o user %x: %s", target.Id, err.Error())
+		}
+
+		err = target.WsConnection.WriteMessage(msgType, encMessage)
 		if err != nil {
 			log.Printf("falha ao enviar msg em broadcast: %s", err.Error())
 			break
@@ -74,10 +80,10 @@ func (r *Room) SendMsg(msgType int, msg []byte, target string) error {
 		return fmt.Errorf("alvo nao existe")
 	}
 
-	usrId, _ := hex.DecodeString(msgTarget.Id)
+	// usrId, _ := hex.DecodeString(msgTarget.Id)
 	// userSecret := r.clients[msgTarget.Id].Secret
 
-	encMessage, err := crypto.Encrypt(msg, usrId)
+	encMessage, err := crypto.Encrypt(msg, msgTarget.Id)
 	if err != nil {
 		log.Printf("falha ao encrypt msg: %s", err.Error())
 	}
@@ -111,8 +117,12 @@ func NewServerState() *ServerState {
 	return &state
 }
 
-func (ss *ServerState) AddClientSecret(clientId string, clientSecret []byte) {
-	ss.Room.clients[clientId].Secret = clientSecret
+func (ss *ServerState) AddClientSecret(clientId []byte, clientSecret []byte) {
+	id := fmt.Sprintf("%x", clientId)
+	ss.Room.clients[id] = &Client{
+		Id:     clientId,
+		Secret: clientSecret,
+	}
 }
 
 var WsUpgrader = websocket.Upgrader{
@@ -166,11 +176,11 @@ func getServerRawPublicMaterial(c *gin.Context, ss *ServerState) {
 func newClient(c *gin.Context, ss *ServerState) {
 	clientId, clientSecret := generateNewClientData(ss.publicRawMaterial)
 
+	log.Printf("The secret is: %x", clientSecret)
+	log.Printf("The clientID is: %s", clientId)
 	ss.AddClientSecret(clientId, clientSecret)
 
-	log.Printf("The secret is: %x", clientSecret)
-
-	c.SetCookie("client", clientId, 3600, "/", "localhost", false, true)
+	c.SetCookie("client", fmt.Sprintf("%x", clientId), 3600, "/", "localhost", false, true)
 	c.Status(http.StatusOK)
 }
 
@@ -190,12 +200,13 @@ func connectToRoom(c *gin.Context, ss *ServerState) {
 		c.Status(http.StatusBadRequest)
 	}
 
-	// clientId, err := c.Cookie("client")
-	// if errors.Is(err, http.ErrNoCookie) {
-	// 	log.Printf("no client ID specefied, no cookie found")
-	// 	c.Status(http.StatusBadRequest)
-	// 	return
-	// }
+	clientId, err := c.Request.Cookie("client")
+	if err != nil {
+		log.Printf("no client ID specefied, no cookie found")
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	log.Printf("client id: %s", clientId)
 
 	ws, err := WsUpgrader.Upgrade(writer, request, nil)
 	if err != nil {
@@ -203,7 +214,11 @@ func connectToRoom(c *gin.Context, ss *ServerState) {
 	}
 	defer ws.Close()
 
-	client := NewClient(time.Now().UTC().GoString(), ws)
+	x1, err := hex.DecodeString(clientId.Value)
+	if err != nil {
+		log.Fatalf("erro ao decode hex from cookie: %s", err.Error())
+	}
+	client := NewClient(x1, ws)
 	ss.Room.RegisterNewClient(client)
 
 	for {
@@ -218,17 +233,21 @@ func connectToRoom(c *gin.Context, ss *ServerState) {
 			continue
 		}
 
-		dencMessage, err := crypto.Decrypt(message, ss.clients[client.Id].Secret)
+		log.Printf("befor: %s", message)
+
+		dencMessage, err := crypto.Decrypt(message, ss.clients[fmt.Sprintf("%x", x1)].Secret)
 		if err != nil {
 			fmt.Printf("failed to encrypt the messages")
 		}
+
+		log.Printf("After: %s", dencMessage)
 
 		_ = ss.SendMsg(mt, dencMessage, targetClient)
 	}
 }
 
 // generateNewClientData generates a client ID and client specific secret
-func generateNewClientData(rawBytes []byte) (string, []byte) {
+func generateNewClientData(rawBytes []byte) ([]byte, []byte) {
 	clientID, err := crypto.GenerateRawRandomBytes(24)
 	if err != nil {
 		log.Fatalf("Erro ao gerar ID do cliente: %s", err.Error())
@@ -243,5 +262,5 @@ func generateNewClientData(rawBytes []byte) (string, []byte) {
 		log.Fatalf("Erro ao gerar raw bytes for secret: %s", err.Error())
 	}
 
-	return fmt.Sprintf("%x", clientID), clientSecret
+	return clientID, clientSecret
 }
