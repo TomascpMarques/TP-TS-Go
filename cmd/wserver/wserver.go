@@ -24,6 +24,7 @@ const (
 
 type Client struct {
 	Id           string
+	Secret       []byte
 	RecvChannel  chan []byte
 	WsConnection *websocket.Conn
 }
@@ -49,8 +50,7 @@ func NewClient(id string, wsc *websocket.Conn) *Client {
 }
 
 type Room struct {
-	clients     map[string]*Client
-	sendChannel chan []byte
+	clients map[string]*Client
 }
 
 func (r *Room) RegisterNewClient(client *Client) {
@@ -68,13 +68,14 @@ func (r *Room) BroadcastMsg(msgType int, msg []byte) (err error) {
 	return
 }
 
-func (r *ServerState) SendMsg(msgType int, msg []byte, target string) error {
-	msgTarget, exists := r.Room.clients[target]
+func (r *Room) SendMsg(msgType int, msg []byte, target string) error {
+	msgTarget, exists := r.clients[target]
 	if !exists {
 		return fmt.Errorf("alvo nao existe")
 	}
 
 	usrId, _ := hex.DecodeString(msgTarget.Id)
+	// userSecret := r.clients[msgTarget.Id].Secret
 
 	encMessage, err := crypto.Encrypt(msg, usrId)
 	if err != nil {
@@ -91,7 +92,6 @@ func (r *ServerState) SendMsg(msgType int, msg []byte, target string) error {
 }
 
 type ServerState struct {
-	clientsSecrets    map[string][]byte
 	publicRawMaterial []byte
 	*Room
 }
@@ -102,11 +102,9 @@ func NewServerState() *ServerState {
 		log.Fatalf("falha ao gerar raw material para o public: %s", err.Error())
 	}
 	state := ServerState{
-		clientsSecrets:    make(map[string][]byte),
 		publicRawMaterial: rawMaterial,
 		Room: &Room{
-			clients:     make(map[string]*Client),
-			sendChannel: make(chan []byte, 256),
+			clients: make(map[string]*Client),
 		},
 	}
 
@@ -114,7 +112,7 @@ func NewServerState() *ServerState {
 }
 
 func (ss *ServerState) AddClientSecret(clientId string, clientSecret []byte) {
-	ss.clientsSecrets[clientId] = clientSecret
+	ss.Room.clients[clientId].Secret = clientSecret
 }
 
 var WsUpgrader = websocket.Upgrader{
@@ -220,7 +218,7 @@ func connectToRoom(c *gin.Context, ss *ServerState) {
 			continue
 		}
 
-		dencMessage, err := crypto.Decrypt(message, ss.clientsSecrets[client.Id])
+		dencMessage, err := crypto.Decrypt(message, ss.clients[client.Id].Secret)
 		if err != nil {
 			fmt.Printf("failed to encrypt the messages")
 		}
