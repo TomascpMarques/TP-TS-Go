@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"net"
@@ -19,12 +20,19 @@ const (
 )
 
 type ServerState struct {
-	clientsSecrets map[string][]byte
+	clientsSecrets    map[string][]byte
+	publicRawMaterial []byte
 }
 
 func NewServerState() *ServerState {
+	rawMaterial, err := crypto.GenerateRawRandomBytes(32)
+	if err != nil {
+		log.Fatalf("falha ao gerar raw material para o public: %s", err.Error())
+	}
+
 	return &ServerState{
-		clientsSecrets: make(map[string][]byte),
+		clientsSecrets:    make(map[string][]byte),
+		publicRawMaterial: rawMaterial,
 	}
 }
 
@@ -51,6 +59,10 @@ func main() {
 	app := gin.Default()
 	serverState := NewServerState()
 
+	app.GET("/public/identity", func(ctx *gin.Context) {
+		getServerRawPublicMaterial(ctx, serverState)
+	})
+
 	app.POST("/create/client", func(ctx *gin.Context) {
 		newClient(ctx, serverState)
 	})
@@ -61,13 +73,22 @@ func main() {
 	log.Fatal(app.RunListener(tcp_listener))
 }
 
+func getServerRawPublicMaterial(c *gin.Context, ss *ServerState) {
+	c.Data(http.StatusOK, http.DetectContentType(ss.publicRawMaterial), ss.publicRawMaterial)
+}
+
+// newClient creates the new client ID and secret, returns only the ID and stores the custom secret.
+// The client will then use the public available raw material, and based on its OWN ID and a Sha256 algo, will generate the same secret on its own
 func newClient(c *gin.Context, ss *ServerState) {
-	clientId, clientSecret := generateNewClientData()
+	clientId, clientSecret := generateNewClientData(ss.publicRawMaterial)
 
 	ss.AddClientSecret(clientId, clientSecret)
 
+	log.Printf("The secret is: %x", clientSecret)
+
 	c.SetCookie("client", clientId, 3600, "/", "localhost", false, true)
-	c.Data(http.StatusOK, http.DetectContentType(clientSecret), clientSecret)
+	c.Status(http.StatusOK)
+	// c.Data(http.StatusOK, http.DetectContentType(clientSecret), clientSecret)
 }
 
 func connectToRoom(c *gin.Context, ss *ServerState) {
@@ -75,16 +96,15 @@ func connectToRoom(c *gin.Context, ss *ServerState) {
 }
 
 // generateNewClientData generates a client ID and client specific secret
-func generateNewClientData() (string, []byte) {
+func generateNewClientData(rawBytes []byte) (string, []byte) {
 	clientID, err := crypto.GenerateRawRandomBytes(24)
 	if err != nil {
 		log.Fatalf("Erro ao gerar ID do cliente: %s", err.Error())
 	}
 
-	rawBytesForSecret, err := crypto.GenerateRawRandomBytes(32)
-	if err != nil {
-		log.Fatalf("Erro ao gerar raw bytes for secret: %s", err.Error())
-	}
+	hash := sha256.New()
+	hash.Write(append(rawBytes, clientID...))
+	rawBytesForSecret := hash.Sum(nil)
 
 	clientSecret, _, err := crypto.GenerateSecret(rawBytesForSecret, time.Now())
 	if err != nil {
