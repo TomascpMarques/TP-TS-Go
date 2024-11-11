@@ -4,12 +4,15 @@ out_dir=./out
 $(out_dir):
 	mkdir -p $(out_dir)
 
-# Web Server --------------------------------------
+# Web Server & Client -----------------------------------
 build_wsrv: $(out_dir)
 	go build -o $(out_dir)/wserver ./cmd/wserver/wserver.go
 
 run_wsrv:
 	go run ./cmd/wserver/wserver.go
+
+build_wsrvc:
+	go build -o $(out_dir)/wserverc ./cmd/wserverc/wserverc.go
 
 # Server ------------------------------------------
 

@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/gorilla/websocket"
@@ -16,43 +17,74 @@ import (
 	"github.com/TP-TS-Go/internal/crypto"
 )
 
+type GivenClientInformation struct {
+	IdBytes  []byte
+	IdCookie *http.Cookie
+}
+
+// getArgsNoProg returns the args the program was called with, and ignores the first one (the program name)
+func getArgsNoProg() []string {
+	return os.Args[1:]
+}
+
+// Usage wserverc 0.0.0.0 8080
 func main() {
-	materialResp, err := http.Get("http://localhost:8080/public/identity")
+	args := getArgsNoProg()
+
+	if len(args) != 2 {
+		log.Fatal("Numero invalido de argumentos!")
+	}
+
+	serverHostname := args[0]
+	serverPort := args[1]
+
+	baseServerUrl, err := url.Parse(fmt.Sprintf("http://%s:%s", serverHostname, serverPort))
+	if err != nil {
+		log.Fatalf("erro ao criar server URL: %s", err)
+	}
+
+	log.Printf("Connecting to <%s> ...\n", baseServerUrl)
+
+	serverPublicMaterialUrl := baseServerUrl.JoinPath("public", "identity")
+
+	materialResp, err := http.Get(serverPublicMaterialUrl.String())
 	if err != nil {
 		log.Fatalf("erro ao ler raw public material: %s", err.Error())
 	}
 
-	material, _ := io.ReadAll(materialResp.Body)
-
-	resp, err := http.Post("http://localhost:8080/create/client", "", nil)
+	material, err := io.ReadAll(materialResp.Body)
 	if err != nil {
-		fmt.Println("Error:", err)
-		return
+		log.Fatalf("error reading the response body: %s", err.Error())
+	}
+
+	serverCreateNewClientUrl := baseServerUrl.JoinPath("create", "client")
+
+	resp, err := http.Post(serverCreateNewClientUrl.String(), "", nil)
+	if err != nil {
+		log.Fatalf("erro ao criar user: %s", err.Error())
 	}
 	defer resp.Body.Close()
 
-	var clientId []byte
-	var clientIdCookie *http.Cookie
+	clientInfo := GivenClientInformation{
+		IdBytes:  make([]byte, 0),
+		IdCookie: nil,
+	}
 
 	for _, x := range resp.Cookies() {
 		if x.Name == "client" {
-			clientIdCookie = x
-			x1, err := hex.DecodeString(x.Value)
+			clientInfo.IdCookie = x
+
+			clientInfo.IdBytes, err = hex.DecodeString(x.Value)
 			if err != nil {
 				log.Fatalf("erro ao decode hex from cookie: %s", err.Error())
 			}
 
-			clientId = make([]byte, len(x1))
-			copy(clientId, x1)
-
-			clientIdCookie.Value = fmt.Sprintf("%x", clientId)
-			log.Printf("ID: %x", clientId)
+			clientInfo.IdCookie.Value = fmt.Sprintf("%x", clientInfo.IdBytes)
+			log.Printf("Given ID: %x", clientInfo.IdBytes)
 		}
 	}
 
-	hash := sha256.New()
-	hash.Write(append(material, clientId...))
-	secret := hash.Sum(nil)
+	secret := hashMaterialWithClientId(material, clientInfo)
 
 	clientSecret, _, err := crypto.GenerateSecret(secret)
 	if err != nil {
@@ -61,16 +93,11 @@ func main() {
 
 	log.Printf("The secret is: %x", clientSecret)
 
-	request, _ := http.NewRequest("GET", "ws://localhost:8080/chat/broadcast/", nil)
-	request.AddCookie(clientIdCookie)
+	serverEnterChatRoomUrl := baseServerUrl.JoinPath("chat")
+	serverEnterChatRoomUrl.Scheme = "ws"
 
-	// client := &http.Client{}
-
-	// resp, err = client.Do(request)
-	// if err != nil {
-	// 	fmt.Println("Error making request:", err)
-	// 	return
-	// }
+	request, _ := http.NewRequest("GET", serverEnterChatRoomUrl.String(), nil)
+	request.AddCookie(clientInfo.IdCookie)
 
 	// Make the WebSocket connection
 	ws, _, err := websocket.DefaultDialer.Dial(request.URL.String(), request.Header)
@@ -115,4 +142,11 @@ func main() {
 			log.Fatalf("erro ao escrever na conexao: %s", err.Error())
 		}
 	}
+}
+
+func hashMaterialWithClientId(material []byte, clientInfo GivenClientInformation) []byte {
+	hash := sha256.New()
+	hash.Write(append(material, clientInfo.IdBytes...))
+	secret := hash.Sum(nil)
+	return secret
 }

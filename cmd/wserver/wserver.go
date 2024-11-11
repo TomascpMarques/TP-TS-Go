@@ -56,7 +56,7 @@ func (r *Room) BroadcastMsg(msgType int, msg []byte) (err error) {
 	for _, target := range r.clients {
 
 		log.Printf("BROAD TARGET ID: %x", target.Id)
-		log.Printf("BROAD TARGET secret: %x", target.Secret)
+		// log.Printf("BROAD TARGET secret: %x", target.Secret)
 
 		encMessage, err := crypto.Encrypt(msg, target.Secret)
 		if err != nil {
@@ -64,7 +64,7 @@ func (r *Room) BroadcastMsg(msgType int, msg []byte) (err error) {
 		}
 		_ = encMessage
 
-		log.Printf("ENC MSG: %x", encMessage)
+		// log.Printf("ENC MSG: %x", encMessage)
 
 		err = target.WsConnection.WriteMessage(msgType, encMessage)
 		if err != nil {
@@ -180,8 +180,8 @@ func getServerRawPublicMaterial(c *gin.Context, ss *ServerState) {
 func newClient(c *gin.Context, ss *ServerState) {
 	clientId, clientSecret := generateNewClientData(ss.publicRawMaterial)
 
-	log.Printf("The secret is: %x", clientSecret)
-	log.Printf("The clientID is: %x", clientId)
+	// log.Printf("The secret is: %x", clientSecret)
+	// log.Printf("The clientID is: %x", clientId)
 	ss.ResgisterNewClient(clientId, clientSecret)
 
 	c.SetCookie("client", fmt.Sprintf("%x", clientId), 3600, "/", "localhost", false, true)
