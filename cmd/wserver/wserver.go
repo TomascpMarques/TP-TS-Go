@@ -225,6 +225,8 @@ func connectToRoom(c *gin.Context, ss *ServerState) {
 		}
 		if mt == -1 {
 			log.Println("closing WsConnection, could be an error on the client, could be a Ctrl-C ...")
+			// Drop closed client
+			delete(ss.clients, currentClientId)
 			return
 		}
 

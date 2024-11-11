@@ -31,14 +31,13 @@ func getArgsNoProg() []string {
 func main() {
 	args := getArgsNoProg()
 
-	if len(args) != 2 {
+	if len(args) != 1 {
 		log.Fatal("Numero invalido de argumentos!")
 	}
 
 	serverHostname := args[0]
-	serverPort := args[1]
 
-	baseServerUrl, err := url.Parse(fmt.Sprintf("http://%s:%s", serverHostname, serverPort))
+	baseServerUrl, err := url.Parse(fmt.Sprintf("https://%s", serverHostname))
 	if err != nil {
 		log.Fatalf("erro ao criar server URL: %s", err)
 	}
@@ -94,7 +93,7 @@ func main() {
 	log.Printf("The secret is: %x", clientSecret)
 
 	serverEnterChatRoomUrl := baseServerUrl.JoinPath("chat")
-	serverEnterChatRoomUrl.Scheme = "ws"
+	serverEnterChatRoomUrl.Scheme = "wss"
 
 	request, _ := http.NewRequest("GET", serverEnterChatRoomUrl.String(), nil)
 	request.AddCookie(clientInfo.IdCookie)

@@ -1,0 +1,7 @@
+# flyctl launch added from .gitignore
+# Golang dependencies meta-data related
+**/go.sum
+
+# Compilation output
+out
+fly.toml
